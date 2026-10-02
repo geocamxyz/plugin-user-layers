@@ -26,6 +26,16 @@ const GEOMS = [
   { v: "polygon", label: "Polygon", esri: "esriGeometryPolygon" },
 ];
 const ESRI_TO_CANON = { esriGeometryPoint: "point", esriGeometryPolyline: "polyline", esriGeometryPolygon: "polygon" };
+
+// This plugin only draws the cell's user-defined layers, which the consolidated
+// FeatureServer allocates in the 100–999 band (UserLayer#layer_index + 100). The
+// fixed skeleton layers (0 shots, 1 features, 2 cell geometry, 10 original
+// positions) are already drawn by the sibling arcgis-map connector, so adding
+// them here duplicates every feature on the map (see geocam-pm #245). Workflow-
+// revision layers (>= 10000) aren't served, but the upper bound guards anyway.
+const USER_LAYER_MIN = 100;
+const USER_LAYER_MAX = 10000; // exclusive
+const isUserLayer = (l) => l.id >= USER_LAYER_MIN && l.id < USER_LAYER_MAX;
 const SKETCH_TOOL = { point: "point", polyline: "polyline", polygon: "polygon" };
 const COLORS = ["#dc2626", "#d97706", "#059669", "#0284c7", "#7c3aed", "#0e0f06"];
 const FIELD_TYPES = [
@@ -140,7 +150,7 @@ export const userLayers = function (config = {}) {
   async function reload() {
     const info = await fetchJson(src);
     canEdit = /Editing|Create/.test(info.capabilities || "");
-    layersMeta = (info.layers || []).map((l) => ({ visible: true, ...l }));
+    layersMeta = (info.layers || []).filter(isUserLayer).map((l) => ({ visible: true, ...l }));
     if (activeId == null || !active()) activeId = layersMeta[0]?.id ?? null;
     syncFeatureLayers();
     render();
