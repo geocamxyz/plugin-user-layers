@@ -1,7 +1,7 @@
 {
   "name": "user-layers",
   "private": true,
-  "version": "2.4.4",
+  "version": "2.4.7",
   "type": "module",
   "description": "Geocam viewer plugin for drawing/editing user planning layers (point/line/polygon) against the user-features ArcGIS FeatureServer.",
   "scripts": {
