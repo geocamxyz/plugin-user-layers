@@ -61,11 +61,6 @@ const TEMPLATES = [
 ];
 
 const TEAL = "#0d9488";
-const hexToRgb = (hex) => {
-  const h = String(hex || "").replace("#", "");
-  if (!/^[0-9a-fA-F]{6}$/.test(h)) return [217, 119, 6];
-  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
-};
 
 const STYLES = `
   .gul { width: 320px; max-height: 78vh; overflow-y: auto; font: 13px/1.4 system-ui, sans-serif; color: #1f2328; }
@@ -194,18 +189,31 @@ export const userLayers = function (config = {}) {
         mapView.map.add(fl);
       }
       fl.visible = meta.visible !== false;
-      fl.renderer = rendererFor(canon(meta), meta.color);
       applyLabels(fl, meta);
     }
   }
 
-  // NB: Esri Color arrays use 0-1 for the alpha (4th) element — so a translucent
-  // fill is rgb.concat(0.3), not 80. Points/lines stay opaque (rgb only).
-  function rendererFor(geom, color) {
-    const rgb = hexToRgb(color);
-    if (geom === "point") return { type: "simple", symbol: { type: "simple-marker", style: "circle", color: rgb, size: 8, outline: { color: [255, 255, 255], width: 1 } } };
-    if (geom === "polyline") return { type: "simple", symbol: { type: "simple-line", color: rgb, width: 2 } };
-    return { type: "simple", symbol: { type: "simple-fill", color: rgb.concat(0.3), outline: { color: rgb, width: 2 } } };
+  // Symbology belongs to the service: every layer's definition carries a
+  // `drawingInfo`, which a FeatureLayer reads and turns into its renderer on
+  // load. We deliberately do NOT set `fl.renderer` here — an explicitly assigned
+  // renderer takes "user" origin and permanently outranks the service's, so the
+  // old `fl.renderer = rendererFor(...)` line discarded whatever the server sent.
+  // That cost us twice (geocam-pm#246): attribute-driven renderers (uniqueValue /
+  // classBreaks) never drew at all, and because the service *root* omits `color`,
+  // the colour passed in was always undefined — so every layer fell back to the
+  // same amber instead of the colour its definition actually specifies.
+  //
+  // Dropping the assignment restores both: the plain colour-derived renderer for
+  // ordinary layers, and any attribute-driven renderer without a line of parsing.
+
+  // A FeatureLayer reads its definition once, at load. After a definition edit
+  // (colour, fields, labels) the cached instance is stale, and `.refresh()` only
+  // refetches features — so discard it and let syncFeatureLayers() rebuild it.
+  function discardFeatureLayer(id) {
+    const fl = featureLayers.get(id);
+    if (!fl) return;
+    mapView.map.remove(fl);
+    featureLayers.delete(id);
   }
 
   function applyLabels(fl, meta) {
@@ -243,6 +251,7 @@ export const userLayers = function (config = {}) {
     if (!a) return;
     Object.assign(a, patch); // optimistic for snappy UI
     await postForm(`${adminBase}/updateDefinition`, { updateDefinition: JSON.stringify({ layers: [{ id: a.id, ...patch }] }) });
+    discardFeatureLayer(a.id); // symbology/fields changed → re-read the definition
     await reload();
   }
   // Geometry change recreates the layer (features are cleared either way).
